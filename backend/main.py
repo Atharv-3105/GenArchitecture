@@ -1,5 +1,4 @@
 import uuid 
-import uvicorn
 import time 
 import logging 
 from logging_config import setup_logging
@@ -9,10 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from models import GenerateRequest, ClarifyRequest, RefineRequest, ExportRequest
 
-from agents.parser import parse_user_input
-from agents.architecture import enrich_architecture
-from agents.layout import calculate_layout
-from agents.style import apply_styles
+from graph.graph import app as graph_app
+
 
 #Initialize logging at the very start of the application
 setup_logging()
@@ -50,31 +47,44 @@ async def generate_diagram(request: GenerateRequest):
     logger.info(f"--- Starting generation for session {session_id} ---")
     total_start = time.time()
     
+    #Define Initial State
+    initial_state = {
+        "user_input" : request.user_input,
+        "parsed_intent": None,
+        "ambiguities": [],
+        "clarification_answers": {},
+        "component_graph" : None,
+        "positioned_graph": None,
+        "excalidraw_payload": None,
+        "validation_errors": [],
+        "repair_attempts": 0,
+        "final_output": None
+    }
+    
+    
+    
     try:
-        #Step 1: Invoke the Parser Agent
-        parsed_intent = parse_user_input(request.user_input)
         
-        #Step 2: Get the Architecture
-        component_graph = enrich_architecture(parsed_intent)
+        #Invoke the Compiled Graph
+        final_state = graph_app.invoke(initial_state)
         
-        #Step 3: Calculate the Layout
-        positioned_graph = calculate_layout(component_graph)
-        
-        #Step 4: Apply style
-        excalidraw_payload = apply_styles(positioned_graph)
-        
+        #Check if the Pipeline failed due to max repair attempts
+        if final_state.get("validation_errors"):
+            raise HTTPException(
+                status_code = 500,
+                detail = f"Pipeline failed after max repair attempts. Errors: {final_state["validation_errors"]}"
+            )
         total_duration = time.time() - total_start
-        logger.info(f"----- Generation pipeline completed in {total_duration:.2f}s")
+        logger.info(f"----- Pipeline completed in {total_duration:.2f}s")
         
         return {
             "status" : "success",
             "session_id" : session_id,
-            "parsed_intent" : parsed_intent.model_dump(),
-            "component_graph" : component_graph.model_dump(),
-            "positioned_graph": positioned_graph.model_dump(),
-            "diagram" : excalidraw_payload.model_dump()
+            "diagram" : final_state['excalidraw_payload'].model_dump()
         }
         
+    except HTTPException: 
+        raise 
     except Exception as e:
         logger.exception("Pipeline failed with an Exception")
         raise HTTPException(
