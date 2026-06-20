@@ -1,5 +1,7 @@
 import logging 
 from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
+
 from graph.state import ArchitectureState
 from graph.nodes import parser_node, clarification_node, architecture_node, layout_node, style_node, validator_node, repair_node
 
@@ -80,7 +82,9 @@ workflow.add_conditional_edges(
 workflow.add_edge("repair", "layout")
 
 #4. Compile the Graph 
-app = workflow.compile()
+#Add memory saver checkpoint so that get_state() can recognize the last_checkpoint
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory)
 
 
 

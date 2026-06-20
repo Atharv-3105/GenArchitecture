@@ -2,9 +2,12 @@ import uuid
 import time 
 import logging 
 from logging_config import setup_logging
+import json 
+import asyncio
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from models import GenerateRequest, ClarifyRequest, RefineRequest, ExportRequest
 
@@ -61,36 +64,80 @@ async def generate_diagram(request: GenerateRequest):
         "final_output": None
     }
     
+    #Define a thread_id in the Config to track state across stream chunks
+    config = {"configurable": {"thread_id": session_id}}
     
-    
-    try:
-        
-        #Invoke the Compiled Graph
-        final_state = graph_app.invoke(initial_state)
-        
-        #Check if the Pipeline failed due to max repair attempts
-        if final_state.get("validation_errors"):
-            raise HTTPException(
-                status_code = 500,
-                detail = f"Pipeline failed after max repair attempts. Errors: {final_state["validation_errors"]}"
-            )
-        total_duration = time.time() - total_start
-        logger.info(f"----- Pipeline completed in {total_duration:.2f}s")
-        
-        return {
-            "status" : "success",
-            "session_id" : session_id,
-            "diagram" : final_state['excalidraw_payload'].model_dump()
+    async def event_generator():
+        try:
+            
+            #Stream updates from Graph as each node completes
+            async for chunk in graph_app.astream(initial_state, config = config, stream_mode = "updates"):
+                #Chunk is like a dict {"parser": {"parsed_intent": ...}}
+                node_name = list(chunk.keys())[0]
+                
+                #Add 50ms delay to ensure NO RACE CONDITIONS BETWEEN FRONTEND AND BACKEND
+                await asyncio.sleep(0.05)
+                
+                #Format a SSE event
+                event_data = {
+                    "event": "node_complete",
+                    "node": node_name,
+                    "status": "done"
+                }
+                
+                yield f"data: {json.dumps(event_data)}\n\n"
+            
+            #Retrieve the final stage to get the Payload
+            final_state_snapshot = graph_app.get_state(config)
+            final_state = final_state_snapshot.values
+            
+            #Check if pipeline failed due to Max-Repair Steps
+            if final_state.get("validation_errors"):
+                error_event = {
+                    "event": "error",
+                    "message": f"Pipeline failed after max repair attempts. Erros: {final_state['validation_errors']}"
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"  
+                return  
+            
+            #Check to ensure diagram is generated or Not
+            payload = final_state.get("excalidraw_payload")
+            if not payload:
+                error_event = {
+                    "event": "error",
+                    "message": "Pipeline finished but no diagram was generated."
+                } 
+                yield f"data: {json.dumps(error_event)}"
+                return 
+            
+            #Send the final diagram payload
+            diagram_event = {
+                "event": "diagram_ready",
+                "payload": payload.model_dump()
+            }
+            yield f"data: {json.dumps(diagram_event)}\n\n"
+            logger.info("----- LangGraph pipeline completed successfully---")
+                
+        except Exception as e:
+            logger.exception("Pipeline failed with an unhandled exception")
+            error_event = {
+                "event": "error",
+                "message": f"Pipeline failed: {str(e)}"
+            }
+            
+            yield f"data: {json.dumps(error_event)}\n\n"
+            
+    #Return a StreamingResponse with SSE content type
+    return StreamingResponse(
+        event_generator(),
+        media_type = "text/event-stream",
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"   #This prevents Nginx from buffering the stream
         }
-        
-    except HTTPException: 
-        raise 
-    except Exception as e:
-        logger.exception("Pipeline failed with an Exception")
-        raise HTTPException(
-            status_code = 500, detail = f"Pipeline failed: {str(e)}"
-        )
-    
+    )
+                
 @app.post("/clarify")
 async def clarify_diagram(request: ClarifyRequest):
     """ 
