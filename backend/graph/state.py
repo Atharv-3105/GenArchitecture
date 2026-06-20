@@ -17,5 +17,6 @@ class ArchitectureState(TypedDict):
     validation_errors:    List[str]
     repair_attempts:      int 
     final_output:         Optional[Dict[str, Any]]
+    refinement_instruction: Optional[str]
     
     

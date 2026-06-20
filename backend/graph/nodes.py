@@ -6,6 +6,7 @@ from agents.layout import calculate_layout
 from agents.style import apply_styles
 from agents.validator import validate_diagram
 from agents.repair import repair_graph
+from agents.refinement import refine_graph
 
 
 logger = logging.getLogger(__name__)
@@ -88,4 +89,24 @@ def repair_node(state: ArchitectureState) -> dict:
         "component_graph": fixed_graph,
         "repair_attempts": state["repair_attempts"] + 1,
         "validation_errors": [] #Clear errors so the loop can re-evaluate
+    }
+    
+def refinement_node(state: ArchitectureState) -> dict:
+    """ 
+        Node 8: Updates the ComponentGraph based on User instructions
+    """
+    
+    logger.info("----Entering Refinement Node------")
+    
+    current_diagram = state['excalidraw_payload']
+    instruction = state['refinement_instruction']
+    
+    if not current_diagram or not instruction:
+        raise ValueError("Refinement Agent requires an Existing Diagram and an Instruction")
+    
+    refined_graph = refine_graph(current_diagram, instruction)
+    
+    return {
+        "component_graph": refined_graph.model_dump(),
+        "refinement_instruction": None
     }

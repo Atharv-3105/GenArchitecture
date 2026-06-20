@@ -3,10 +3,20 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from graph.state import ArchitectureState
-from graph.nodes import parser_node, clarification_node, architecture_node, layout_node, style_node, validator_node, repair_node
+from graph.nodes import parser_node, clarification_node, architecture_node, layout_node, style_node, validator_node, repair_node, refinement_node
 
 
 logger = logging.getLogger(__name__)
+
+def route_start(state: ArchitectureState):
+    """ 
+        Routes to Refinement if instruction exists, else continues to Parser.
+    """
+    if state.get("refinement_instruction"):
+        logger.info("Routing to Refinement Node.")
+        return "refinement"
+    
+    return "parser"
 
 def route_after_parser(state: ArchitectureState):
     """ 
@@ -46,15 +56,23 @@ workflow = StateGraph(ArchitectureState)
 workflow.add_node("parser", parser_node)
 workflow.add_node("clarification", clarification_node)
 workflow.add_node("architecture", architecture_node)
+workflow.add_node("refinement", refinement_node) 
 workflow.add_node("layout", layout_node)
 workflow.add_node("style", style_node)
 workflow.add_node("validator", validator_node)
 workflow.add_node("repair", repair_node)
 
 #3. Define Edges
-workflow.add_edge(START, "parser")
+workflow.add_conditional_edges(
+    START,
+    route_start,
+    {
+        "refinement": "refinement",
+        "parser": "parser"
+    }
+)
 
-#Conditional Routing adter Parser
+# Conditional Routing adter Parser
 workflow.add_conditional_edges(
     "parser", route_after_parser,
     {
@@ -63,13 +81,16 @@ workflow.add_conditional_edges(
     }
 )
 
-#Linear Flow (Clarification-> Architecture -> Layout -> Style -> Validator)
+# Linear Flow (Clarification-> Architecture -> Layout -> Style -> Validator)
 workflow.add_edge("clarification", "architecture")
+
+workflow.add_edge("refinement","layout") 
+
 workflow.add_edge("architecture", "layout")
 workflow.add_edge("layout", "style")
 workflow.add_edge("style", "validator")
 
-#Conditional Routing After Validator
+# Conditional Routing After Validator
 workflow.add_conditional_edges(
     "validator",route_after_validator,
     {
@@ -78,11 +99,11 @@ workflow.add_conditional_edges(
     }
 )
 
-#Repair loops back to layout
+# Repair loops back to layout
 workflow.add_edge("repair", "layout")
 
-#4. Compile the Graph 
-#Add memory saver checkpoint so that get_state() can recognize the last_checkpoint
+# 4. Compile the Graph 
+# Add memory saver checkpoint so that get_state() can recognize the last_checkpoint
 memory = MemorySaver()
 app = workflow.compile(checkpointer=memory)
 
