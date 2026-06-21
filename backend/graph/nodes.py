@@ -107,6 +107,6 @@ def refinement_node(state: ArchitectureState) -> dict:
     refined_graph = refine_graph(current_diagram, instruction)
     
     return {
-        "component_graph": refined_graph.model_dump(),
+        "component_graph": refined_graph,
         "refinement_instruction": None
     }

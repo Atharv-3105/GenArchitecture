@@ -1,10 +1,21 @@
 import logging 
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from graph.state import ArchitectureState
 from graph.nodes import parser_node, clarification_node, architecture_node, layout_node, style_node, validator_node, repair_node, refinement_node
+from models import ParsedIntent, ComponentGraph, PositionedGraph, ExcalidrawPayload
 
+# Define serializer with custom types allowlisted for security and warning suppression
+serde = JsonPlusSerializer(
+    allowed_msgpack_modules=[
+        (ParsedIntent.__module__, ParsedIntent.__name__),
+        (ComponentGraph.__module__, ComponentGraph.__name__),
+        (PositionedGraph.__module__, PositionedGraph.__name__),
+        (ExcalidrawPayload.__module__, ExcalidrawPayload.__name__),
+    ]
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +115,7 @@ workflow.add_edge("repair", "layout")
 
 # 4. Compile the Graph 
 # Add memory saver checkpoint so that get_state() can recognize the last_checkpoint
-memory = MemorySaver()
+memory = MemorySaver(serde=serde)
 app = workflow.compile(checkpointer=memory)
 
 

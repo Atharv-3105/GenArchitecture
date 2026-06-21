@@ -25,7 +25,7 @@ class RefineRequest(BaseModel):
         Payload schema for making edits to an existing diagram.
     """ 
     
-    diagram_payload: Dict[str, str] = Field(..., description = "The current Excalidraw JSON payload")
+    diagram_payload: Dict[str, Any] = Field(..., description = "The current Excalidraw JSON payload")
     edit_instruction: str = Field(..., min_length=1, description = "Plain English instruction on how to modify the  diagram")
     
 class ExportRequest(BaseModel):

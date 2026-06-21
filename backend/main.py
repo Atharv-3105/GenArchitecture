@@ -179,25 +179,27 @@ async def refine_diagram(request: RefineRequest):
             async for chunk in graph_app.astream(initial_state, config = config, stream_mode = "updates"):
                 node_name = list(chunk.keys())[0]
                 
-                asyncio.sleep(0.05)
-                yield f"Data: {json.dumps({'event': 'node_complete', 'node': node_name, 'status': 'done'})}\n\n"
+                await asyncio.sleep(0.05)
+                yield f"data: {json.dumps({'event': 'node_complete', 'node': node_name, 'status': 'done'})}\n\n"
                 
             final_state_snapshot = graph_app.get_state(config)
             final_state = final_state_snapshot.values 
             
             if final_state.get("validation_errors"):
-                yield f"Data: {json.dumps({'event':'error', 'message': str(final_state['validation_errors'])})}\n\n"
+                yield f"data: {json.dumps({'event':'error', 'message': str(final_state['validation_errors'])})}\n\n"
                 return 
             
             payload = final_state.get('excalidraw_payload')
             
             if payload:
-                yield f"Data: {json.dumps({'event': 'diagram_ready', 'payload': payload})}\n\n"
+                serializable_payload = payload.model_dump() if hasattr(payload, 'model_dump') else payload
+                yield f"data: {json.dumps({'event': 'diagram_ready', 'payload': serializable_payload})}\n\n"
             else:
-                yield f"Data: {json.dumps({'event':'error', 'message': 'Refinement Failed'})}\n\n"
+                yield f"data: {json.dumps({'event':'error', 'message': 'Refinement Failed'})}\n\n"
                 
         except Exception as e:
-            yield f"Data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
+            logger.exception("Refinement pipeline failed with an unhandled exception")
+            yield f"data: {json.dumps({'event': 'error', 'message': str(e)})}\n\n"
             
     return StreamingResponse(event_generator(), media_type="text/event_stream", headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     

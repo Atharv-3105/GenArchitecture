@@ -21,27 +21,39 @@ export function useArchitectureStream() {
         error: null,
     });
 
-    const startGeneration = useCallback(async (userInput: string) => {
-        //Reset the state for a new Generation
-        setState({
+    const startGeneration = useCallback(async (userInput: string, existingDiagram?: DiagramPayload) => {
+        //Reset the state for a new Generation/Refinement
+        setState(prev => ({
+            ...prev,
             status: 'streaming',
             currentNode: null,
             completedNodes: [],
-            diagram: null,
             error: null,
-        });
+            diagram: existingDiagram || null,
+        }));
 
         try {
+
+            //Route to /refine if we have an existing diagram
+            const url = existingDiagram ? 'http://localhost:8000/refine' : 'http://localhost:8000/generate';
+            const body = existingDiagram ? 
+                         JSON.stringify({diagram_payload: existingDiagram, edit_instruction: userInput})
+                        :JSON.stringify({ user_input: userInput });
+
             
-            console.log("Starting Generation Request...")
+            console.log(`Starting ${existingDiagram ? 'Refinement' : 'Generation'} Request...`);
+            console.log('Sending payload to', url, body);
+
             //get the Response from the backend
-            const response = await fetch("http://localhost:8000/generate", {
+            const response = await fetch(url, {
                 method: "POST",
                 headers: {"Content-Type": 'application/json'},
-                body: JSON.stringify({user_input: userInput}),
+                body,
             });
 
             if(!response.ok) {
+                const errorBody = await response.text();
+                console.error('Backend Error body:', errorBody);
                 throw new Error(`Backend returned HTTP ${response.status}`);
             }
 
