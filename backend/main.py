@@ -4,25 +4,35 @@ import logging
 from logging_config import setup_logging
 import json 
 import asyncio
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from models import GenerateRequest, ClarifyRequest, RefineRequest, ExportRequest
 
 from graph.graph import app as graph_app
+from auth import get_current_user
+from database import init_db, check_rate_limits, increment_rate_limit
 
 
 #Initialize logging at the very start of the application
 setup_logging()
 logger = logging.getLogger(__name__)
 
+#Define LifeSpan context mananger for initialization of DB at Startup
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield 
+
 #Intialize FastAPI app
 app = FastAPI(
     title = "Architecture AI Backend",
     description = "Diagram Generation from Natural Language input",
-    version = "0.1.0"
+    version = "0.1.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -42,12 +52,20 @@ async def health_check():
     }
     
 @app.post("/generate")
-async def generate_diagram(request: GenerateRequest):
+async def generate_diagram(request: GenerateRequest, user_id: str = Depends(get_current_user)):
     """  
         Starts the Agent pipeline for Parser,Architecture Agent. 
     """
+    
+    #Check rate limit
+    if not await check_rate_limits(user_id, limit=5):
+        raise HTTPException(status_code=429, detail="Daily limit of 5 diagrams reached.")
+    
+    #Increment Count
+    await increment_rate_limit(user_id)
+    
     session_id = str(uuid.uuid4())
-    logger.info(f"--- Starting generation for session {session_id} ---")
+    logger.info(f"--- Starting generation for user {user_id}, session {session_id} ---")
     total_start = time.time()
     
     #Define Initial State
@@ -61,7 +79,8 @@ async def generate_diagram(request: GenerateRequest):
         "excalidraw_payload": None,
         "validation_errors": [],
         "repair_attempts": 0,
-        "final_output": None
+        "final_output": None,
+        "refinement_instruction": None
     }
     
     #Define a thread_id in the Config to track state across stream chunks
@@ -151,12 +170,19 @@ async def clarify_diagram(request: ClarifyRequest):
     }
     
 @app.post("/refine")
-async def refine_diagram(request: RefineRequest):
+async def refine_diagram(request: RefineRequest, user_id: str = Depends(get_current_user)):
     """  
         Runs the refinement Agent to make surgical updates to an existing diagram.
     """
+    
+    #Check for Rate Limit
+    if not await check_rate_limits(user_id, limit = 5):
+        raise HTTPException(status_code=429, detail = "Daily limit reached.")
+    await increment_rate_limit(user_id)
+    
+    
     session_id = str(uuid.uuid4())
-    logger.info(f"-------Starting Refinement Pipeline for Session: {session_id}---------")
+    logger.info(f"-------Starting Refinement Pipeline for User: {user_id}, Session: {session_id}---------")
     
     initial_state = {
         "user_input" : "",

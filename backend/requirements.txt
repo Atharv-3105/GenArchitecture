@@ -6,3 +6,6 @@ langchain-community
 networkx
 graphviz
 pydot
+python-jose[cryptography]
+httpx
+aiosqlite
