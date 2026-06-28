@@ -2,7 +2,7 @@ import logging
 import random 
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
-from models import PositionedGraph, ExcalidrawPayload, Annotation, RectangleElement, TextElement, ArrowElement
+from models import PositionedGraph, ExcalidrawPayload, AnnotationOutput, RectangleElement, TextElement, ArrowElement
 
 
 logger = logging.getLogger(__name__)
@@ -42,24 +42,36 @@ def generate_annotations(graph: PositionedGraph, current_payload: ExcalidrawPayl
         result = chain.invoke({"graph_json": graph.model_dump_json()})
         logger.info(f"Annotation Agent Generated {len(result.annotations)} notes and an ADR.")
         
-        #Deterministic Mapping: Convert Annotations to Excalidraw Elements----
+        #------Deterministic Mapping: Convert Annotations to Excalidraw Elements----
         new_elements = list(current_payload.elements) 
-        node_map = {n.id: n for n in graph.nodes}
+        node_map = {n.id : n for n in graph.nodes}
         
         for note in result.annotations:
-            target_node = node_map.get(note.target_node_id)
+            
+            #Convert the 'note' to dict for safely_accessing the fields 
+            note_dict = note.model_dump() if hasattr(note, 'model_dump') else dict(note)
+            
+            #THE LLM can response using multiple field_names for target_note_id so check for it
+            target_id = note_dict.get('target_node_id') or note_dict.get('node_id') or note_dict.get('target_id') or note_dict.get('target_node')
+            note_text = note_dict.get('note_text') or note_dict.get('text') or note_dict.get('note')
+            
+            if not target_id or not note_text:
+                logger.warning(f"Skipping annotation due to missing fields: {note_dict}")
+                continue 
+            
+            target_node = node_map.get(target_id)
             if not target_node:
-                logger.warning(f"Annotation target {note.target_node_id} not found.")
+                logger.warning(f"Annotation target '{target_id}' not found in graph.")
                 continue
             
             
             #Position sticky note above the target node
             note_x = target_node.x
-            note_y = target_node.y
+            note_y = target_node.y - 120
             note_width = 160
             note_height = 60
             
-            note_id = f"note-{note.target_node_id}"
+            note_id = f"note-{target_id}"
             text_id = f"text-{note_id}"
             arrow_id = f"arrow-{note_id}"
             
@@ -89,7 +101,7 @@ def generate_annotations(graph: PositionedGraph, current_payload: ExcalidrawPayl
             new_elements.append(ArrowElement(
                 id=arrow_id, x=note_cx, y=note_cy,
                 width=abs(target_cx - note_cx), height=abs(target_cy - note_cy),
-                strokeColor="#ca8a04", strokeStyle="dashed", roughness=1,
+                strokeColor="#ca8a04", backgroundColor="transparent", strokeStyle="dashed", roughness=1,
                 points=[[0, 0], [target_cx - note_cx, target_cy - note_cy]],
                 startBinding={"elementId": note_id, "focus": 0, "gap": 1},
                 endBinding={"elementId": f"rect-{note.target_node_id}", "focus": 0, "gap": 1},

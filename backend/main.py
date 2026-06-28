@@ -126,13 +126,14 @@ async def generate_diagram(request: GenerateRequest, user_id: str = Depends(get_
                     "event": "error",
                     "message": "Pipeline finished but no diagram was generated."
                 } 
-                yield f"data: {json.dumps(error_event)}"
+                yield f"data: {json.dumps(error_event)}\n\n"
                 return 
+            
             
             #Send the final diagram payload
             diagram_event = {
                 "event": "diagram_ready",
-                "payload": payload.model_dump()
+                "payload": payload.model_dump() if hasattr(payload, "model_dump") else payload
             }
             yield f"data: {json.dumps(diagram_event)}\n\n"
             logger.info("----- LangGraph pipeline completed successfully---")

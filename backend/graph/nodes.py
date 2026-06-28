@@ -9,6 +9,8 @@ from agents.repair import repair_graph
 from agents.refinement import refine_graph
 from agents.annotation import generate_annotations
 
+from models import ExcalidrawPayload
+
 logger = logging.getLogger(__name__)
 
 def parser_node(state: ArchitectureState) -> dict:
@@ -67,7 +69,16 @@ def validator_node(state: ArchitectureState) -> dict:
         Node 6: Checks for Structural Errors.
     """
     logger.info("-------Entering Validator Node-------")
-    errors = validate_diagram(state["excalidraw_payload"])
+    
+    #The LangGraph State stores the payload as a Dict. Convert it back to Pydantic Model for Validation Agent
+    payload_dict = state['excalidraw_payload']
+
+    if isinstance(payload_dict, dict):
+        payload = ExcalidrawPayload.model_validate(payload_dict)
+    else:
+        payload = payload_dict
+        
+    errors = validate_diagram(payload)
     return {
         "validation_errors": errors
     }

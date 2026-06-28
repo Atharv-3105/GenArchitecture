@@ -3,9 +3,9 @@ import { SplitPane } from './components/SplitPane';
 import { ExcalidrawCanvas } from './components/ExcalidrawCanvas';
 import { ProgressIndicator } from './components/ProgressIndicator';
 import { useArchitectureStream } from './hooks/useArchitectureStream';
-import { Wand2, Loader2, Sparkles } from 'lucide-react';
+import { Wand2, Loader2, Sparkles, FileText, X} from 'lucide-react';
 import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
-
+import ReactMarkdown from 'react-markdown';
 
 
 
@@ -64,6 +64,7 @@ function App() {
 function AppContent() {
   const streamState = useArchitectureStream();
   const [userInput, setUserInput] = useState('');
+  const [showADR, setShowADR] = useState(false);
   
   const { status, currentNode, completedNodes, diagram, error, startGeneration } = streamState;
   const isGenerating = status === 'streaming';
@@ -86,6 +87,7 @@ function AppContent() {
   };
 
   return (
+  <div className='flex h-full w-full relative'>
     <SplitPane 
       leftPanel={
         // FIX: Inlined JSX prevents the component from unmounting on every keystroke
@@ -162,6 +164,15 @@ function AppContent() {
               )}
             </button>
           )}
+          {diagram?.adr_markdown && (
+              <button 
+                  onClick = {() => setShowADR(true)}
+                  className = "mt-4 w-full bg-surface hover:bg-zinc-800 border border-border text-zinc-300 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <FileText className = "w-4 h-4" />
+                View Architecture Decision Record 
+              </button>
+            )}
         </div>
       }
       rightPanel={
@@ -170,6 +181,26 @@ function AppContent() {
         </div>
       }
     />
+
+    {showADR && diagram?.adr_markdown && (
+      <div className='absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-8'>
+        <div className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary" />
+                Architecture Decision Record
+              </h2>
+              <button onClick={() => setShowADR(false)} className="text-zinc-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto prose prose-invert max-w-none">
+              <ReactMarkdown>{diagram.adr_markdown}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

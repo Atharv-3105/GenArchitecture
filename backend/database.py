@@ -12,9 +12,10 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
                          CREATE TABLE IF NOT EXISTS rate_limits (
-                             user_id TEXT PRIMARY KEY,
+                             user_id TEXT,
                              date TEXT, 
-                             count INTEGER
+                             count INTEGER,
+                             PRIMARY KEY (user_id, date)
                          )
                          """)
         
@@ -29,15 +30,12 @@ async def check_rate_limits(user_id: str, limit: int = 5) -> bool:
     
     today = date.today().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT date, count FROM rate_limits WHERE user_id = ?", (user_id, )) as cursor:
+        async with db.execute("SELECT count FROM rate_limits WHERE user_id = ? AND date = ?", (user_id, today)) as cursor:
             row = await cursor.fetchone()
             if not row:
-                return True
-            
-            if row[0] != today:
-                return True #It's a New day
-            
-            return row[1] < limit 
+                return True #Never Generated Today
+                        
+            return row[0] < limit 
         
 async def increment_rate_limit(user_id: str):
     """
@@ -47,19 +45,14 @@ async def increment_rate_limit(user_id: str):
     today = date.today().isoformat()
     
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT count FROM rate_limits WHERE user_id = ? AND date = ?", (user_id, today)) as cursor:
-            
-            row = await cursor.fetchone()
-            
-            #Insert's new user with count 1
-            if not row:
-                await db.execute(
-                    "INSERT INTO rate_limits (user_id, date, count) VALUES (?, ?, 1)", (user_id, today)
-                )
-                
-            else:
-                await db.execute("UPDATE rate_limits SET count = count + 1 WHERE user_id = ? AND date = ?", (user_id, today))
-                
+        query = """
+        INSERT INTO rate_limits (user_id, date, count)
+        VALUES (?, ?, 1)
+        ON CONFLICT(user_id, date) DO UPDATE 
+        SET count = count + 1
+        """
+        async with db.execute(query, (user_id, today)):
+        
             await db.commit()
             
             
